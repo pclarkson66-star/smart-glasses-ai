@@ -13,7 +13,7 @@ process.on("unhandledRejection", (err) => {
 });
 
 /* ENV CONFIG */
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 8080;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -61,6 +61,7 @@ function saveMemory() {
 /* SESSION TRACKING */
 const sessions = new Map();
 
+/* HTTP SERVER (IMPORTANT FOR RAILWAY) */
 const server = http.createServer((req, res) => {
   if (req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -74,10 +75,6 @@ const server = http.createServer((req, res) => {
 
   res.writeHead(404);
   res.end("Not Found");
-});
-
-  res.writeHead(200);
-  res.end("Server is alive");
 });
 
 /* WEBSOCKET SERVER */
