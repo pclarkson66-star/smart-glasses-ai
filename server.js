@@ -34,6 +34,16 @@ server.listen(PORT, () => {
 console.log("Smart AI running...");
 
 wss.on("connection", (ws, req) => {
+  console.log("NEW CONNECTION");
+
+const url = new URL(req.url, "http://localhost");
+
+const token = url.searchParams.get("token");
+const userId = url.searchParams.get("userId");
+
+console.log("TOKEN RECEIVED:", token);
+console.log("USER ID RECEIVED:", userId);
+console.log("EXPECTED TOKEN:", TOKEN);
 const url = new URL(req.url, "http://localhost");
 
 const token = url.searchParams.get("token");
@@ -44,7 +54,8 @@ console.log("Incoming token:", token);
 console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
 
-if (token !== process.env.TOKEN || !userId) {
+if (token !== TOKEN || !userId) {
+  console.log("REJECTED CONNECTION");
   ws.close();
   return;
 }
