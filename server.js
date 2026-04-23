@@ -13,9 +13,9 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
+// Memory
 const MEMORY_FILE = "./memory.json";
 
-// Load memory
 let longTermMemory = {};
 if (fs.existsSync(MEMORY_FILE)) {
   longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
@@ -27,21 +27,26 @@ function saveMemory() {
 
 const sessions = new Map();
 
-// HTTP server
+// ✅ HTTP server (IMPORTANT for Railway)
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Smart AI WebSocket server running 🚀");
+  res.end("Server is alive ✅");
 });
 
+// ✅ WebSocket server
 const wss = new WebSocketServer({ server });
 
-server.listen(PORT, () => {
+// ✅ Start server
+server.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
 
+// Keep process alive (extra safety)
+setInterval(() => {}, 1000);
+
 console.log("Smart AI running...");
 
-// WebSocket connection
+// ✅ WebSocket connection
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
@@ -61,14 +66,13 @@ wss.on("connection", (ws, req) => {
   console.log("Expected token:", TOKEN);
   console.log("UserId:", userId);
 
-  // Validate
+  // ✅ Validate
   if (token !== TOKEN || !userId) {
     console.log("REJECTED CONNECTION");
     ws.close();
     return;
   }
 
-  // Init memory + session
   if (!longTermMemory[userId]) {
     longTermMemory[userId] = { facts: [] };
   }
@@ -77,39 +81,18 @@ wss.on("connection", (ws, req) => {
     sessions.set(userId, []);
   }
 
-  // Handle messages
+  // ✅ SINGLE message handler
   ws.on("message", async (msg) => {
     try {
       const text = msg.toString();
       console.log("MESSAGE:", text);
 
-      const history = sessions.get(userId);
-      const memory = longTermMemory[userId];
-
-      history.push({ role: "user", content: text });
-
-      // 🔥 OpenAI call (CORRECT)
       const response = await openai.responses.create({
         model: "gpt-4o-mini",
-        input: [
-          {
-            role: "system",
-            content: `You are a helpful assistant. User facts: ${memory.facts.join(", ")}`
-          },
-          ...history
-        ]
+        input: text,
       });
 
       const reply = response.output_text;
-
-      // Save assistant reply
-      history.push({ role: "assistant", content: reply });
-
-      // Optional memory learning
-      if (text.toLowerCase().includes("my name is")) {
-        memory.facts.push(text);
-        saveMemory();
-      }
 
       ws.send(reply);
 
