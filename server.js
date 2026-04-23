@@ -10,7 +10,11 @@ app.get("/", (req, res) => res.send("OK"));
 app.get("/health", (req, res) => res.send("healthy"));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+
+const wss = new WebSocketServer({
+  server,
+  path: "/ws"
+});
 
 wss.on("connection", (ws) => {
   console.log("NEW CONNECTION");
@@ -29,7 +33,6 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      // STEP 1: Handle OcuClaw handshake
       if (data.type === "protocolHello") {
         const token = data.token;
 
@@ -42,30 +45,20 @@ wss.on("connection", (ws) => {
         authorized = true;
         console.log("AUTHORIZED");
 
-        // Respond to handshake (important!)
-        ws.send(
-          JSON.stringify({
-            type: "protocolAck",
-            version: "v2"
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "protocolAck",
+          version: "v2"
+        }));
 
         return;
       }
 
-      // STEP 2: Ignore anything before auth
-      if (!authorized) {
-        console.log("IGNORED (not authorized yet)");
-        return;
-      }
+      if (!authorized) return;
 
-      // STEP 3: Handle real messages
-      ws.send(
-        JSON.stringify({
-          type: "response",
-          text: "Connected to AI relay"
-        })
-      );
+      ws.send(JSON.stringify({
+        type: "response",
+        text: "Connected to AI relay"
+      }));
 
     } catch (err) {
       console.error("ERROR:", err);
@@ -81,10 +74,10 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Keep alive
+// keep alive
 setInterval(async () => {
   try {
-    const res = await fetch(`http://localhost:${PORT}/health`);
-    if (res.ok) console.log("Self ping success");
+    await fetch(`http://localhost:${PORT}/health`);
+    console.log("Self ping success");
   } catch {}
 }, 30000);
