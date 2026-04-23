@@ -98,7 +98,28 @@ sessions.set(userId, []);
 }
 
 ws.on("message", async (message) => {
-const userText = message.toString();
+  const text = message.toString();
+  console.log("User:", text);
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are a helpful AI assistant." },
+        { role: "user", content: text }
+      ],
+    });
+
+    const reply = response.choices[0].message.content;
+
+    console.log("AI:", reply);
+
+    ws.send(reply);
+  } catch (err) {
+    console.error("AI Error:", err);
+    ws.send("Error talking to AI");
+  }
+});
 
 const history = sessions.get(userId);
 const memory = longTermMemory[userId];
