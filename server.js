@@ -3,11 +3,11 @@ import fs from "fs";
 import http from "http";
 import OpenAI from "openai";
 
-console.log("API KEY LOADED:", !!OPENAI_API_KEY);
-
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+console.log("API KEY LOADED:", !!OPENAI_API_KEY);
 
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
