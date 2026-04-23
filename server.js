@@ -25,7 +25,7 @@ function saveMemory() {
 
 const sessions = new Map();
 
-// HTTP server (for Railway health check)
+// HTTP server
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("Smart AI WebSocket server running 🚀");
@@ -56,10 +56,10 @@ wss.on("connection", (ws, req) => {
   const userId = url.searchParams.get("userId");
 
   console.log("Incoming token:", token);
-  console.log("Expected token:", process.env.TOKEN);
+  console.log("Expected token:", TOKEN);
   console.log("UserId:", userId);
 
-  // ✅ Validate connection
+  // Validate
   if (token !== TOKEN || !userId) {
     console.log("REJECTED CONNECTION");
     ws.close();
@@ -75,7 +75,7 @@ wss.on("connection", (ws, req) => {
     sessions.set(userId, []);
   }
 
-  // ✅ SINGLE message handler
+  // Handle messages
   ws.on("message", async (msg) => {
     try {
       const text = msg.toString();
@@ -86,12 +86,34 @@ wss.on("connection", (ws, req) => {
 
       history.push({ role: "user", content: text });
 
-      // 🧠 Ask OpenAI (correct v4 API)
+      // 🔥 OpenAI call (CORRECT)
       const response = await openai.responses.create({
         model: "gpt-4o-mini",
         input: [
           {
             role: "system",
-            content: `You are a helpful assistant. User facts: ${memory.facts.join(", ")}`,
+            content: `You are a helpful assistant. User facts: ${memory.facts.join(", ")}`
           },
           ...history
+        ]
+      });
+
+      const reply = response.output_text;
+
+      // Save assistant reply
+      history.push({ role: "assistant", content: reply });
+
+      // Optional memory learning
+      if (text.toLowerCase().includes("my name is")) {
+        memory.facts.push(text);
+        saveMemory();
+      }
+
+      ws.send(reply);
+
+    } catch (err) {
+      console.error("AI ERROR:", err);
+      ws.send("Error getting AI response");
+    }
+  });
+});
