@@ -1,177 +1,108 @@
-import WebSocket, { WebSocketServer } from "ws";
-import fs from "fs";
+import express from "express";
 import http from "http";
+import WebSocket, { WebSocketServer } from "ws";
 import OpenAI from "openai";
 
-/* SAFETY LOGGING */
-process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT EXCEPTION:", err);
-});
+const app = express();
+const server = http.createServer(app);
 
-process.on("unhandledRejection", (err) => {
-  console.error("UNHANDLED REJECTION:", err);
-});
+const wss = new WebSocketServer({ server });
 
-/* ENV */
-const PORT = Number(process.env.PORT) || 8080;
-const TOKEN = process.env.TOKEN;
+// Environment variables
+const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const RELAY_TOKEN = process.env.RELAY_TOKEN;
 
-console.log("API KEY LOADED:", !!OPENAI_API_KEY);
-console.log("TOKEN LOADED:", !!TOKEN);
-
-/* OPENAI */
+// OpenAI client
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-/* MEMORY (SAFE) */
-const MEMORY_FILE = "./memory.json";
-let longTermMemory = {};
-
-try {
-  if (fs.existsSync(MEMORY_FILE)) {
-    longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
-  }
-} catch (e) {
-  console.error("Memory load failed:", e);
-  longTermMemory = {};
-}
-
-function saveMemory() {
-  try {
-    fs.writeFileSync(
-      MEMORY_FILE,
-      JSON.stringify(longTermMemory, null, 2)
-    );
-  } catch (err) {
-    console.error("Memory save failed:", err);
-  }
-}
-
-/* SESSIONS */
-const sessions = new Map();
-
-/* HTTP SERVER (Railway requires this) */
-const server = http.createServer((req, res) => {
-  if (req.url === "/" || req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    return res.end("OK");
-  }
-
-  res.writeHead(404);
-  res.end("Not Found");
+// Health check (Railway needs this)
+app.get("/", (req, res) => {
+  res.send("OK");
 });
 
-/* WEBSOCKET */
-const wss = new WebSocketServer({ server });
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port", PORT);
-});
-
-console.log("Smart AI running");
-
-/* CONNECTION */
+// WebSocket connection (OcuClaw)
 wss.on("connection", (ws, req) => {
-  console.log("NEW CONNECTION");
+  console.log("🔌 Client connected");
 
-  let token = null;
-
-  // Try query param
-  try {
-    const url = new URL(req.url, "http://localhost");
-    token = url.searchParams.get("token");
-  } catch {}
-
-  // Try Authorization header
-  if (!token && req.headers.authorization) {
-    const parts = req.headers.authorization.split(" ");
-    if (parts.length === 2 && parts[0] === "Bearer") {
-      token = parts[1];
-    }
-  }
-
-  // Validate token (optional)
-  if (TOKEN && token && token !== TOKEN) {
-    console.log("REJECTED CONNECTION (bad token)");
-    ws.close();
-    return;
-  }
-
-  const userId = "default-user";
-
-  console.log("AUTHORIZED:", userId);
-
-  if (!longTermMemory[userId]) {
-    longTermMemory[userId] = { facts: [] };
-  }
-
-  if (!sessions.has(userId)) {
-    sessions.set(userId, []);
-  }
-
-  /* MESSAGE HANDLER */
-  ws.on("message", async (msg) => {
+  ws.on("message", async (message) => {
     try {
-      const raw = msg.toString();
-      console.log("RAW MESSAGE:", raw);
+      const data = JSON.parse(message.toString());
+      console.log("📩 Incoming:", data);
 
-      let data;
-
-      // Try parsing JSON
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = { text: raw };
-      }
-
-      // 🚫 Ignore OcuClaw handshake/system messages
+      // Ignore protocol hello (OcuClaw handshake)
       if (data.type === "protocolHello") {
-        console.log("Handshake received");
+        console.log("🤝 Handshake received");
         return;
       }
 
-      // Extract user message safely
-      const userText =
-        data.text ||
-        data.message ||
-        data.input ||
-        raw;
-
-      if (!userText || typeof userText !== "string") {
-        console.log("No usable message");
+      // Optional token check
+      if (RELAY_TOKEN && data.token !== RELAY_TOKEN) {
+        ws.send(JSON.stringify({ error: "Invalid token" }));
         return;
       }
 
-      console.log("USER MESSAGE:", userText);
+      const userText = data.text || "Hello";
 
-      /* CALL OPENAI */
-      const response = await openai.responses.create({
-        model: "gpt-4o-mini",
-        input: userText,
-      });
+      let replyText = "";
 
-      const reply =
-        response.output?.[0]?.content?.[0]?.text ||
-        response.output_text ||
-        "No response";
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are a helpful AI assistant for smart glasses." },
+            { role: "user", content: userText },
+          ],
+        });
 
-      console.log("REPLY:", reply);
+        replyText = completion.choices[0].message.content;
 
-      ws.send(reply);
+      } catch (err) {
+        console.error("❌ OpenAI Error:", err.message);
+
+        // Handle quota / rate limit nicely
+        if (err.status === 429) {
+          replyText = "⚠️ AI is temporarily busy or quota exceeded. Try again shortly.";
+        } else if (err.status === 401) {
+          replyText = "⚠️ API key issue. Check your OpenAI key.";
+        } else {
+          replyText = "⚠️ AI error occurred.";
+        }
+      }
+
+      ws.send(
+        JSON.stringify({
+          type: "response",
+          text: replyText,
+        })
+      );
 
     } catch (err) {
-      console.error("AI ERROR:", err);
-      ws.send("Error getting AI response");
+      console.error("❌ Message Error:", err);
+
+      ws.send(
+        JSON.stringify({
+          error: "Invalid message format",
+        })
+      );
     }
   });
 
   ws.on("close", () => {
-    console.log("CONNECTION CLOSED:", userId);
-  });
-
-  ws.on("error", (err) => {
-    console.error("WebSocket error:", err);
+    console.log("❌ Client disconnected");
   });
 });
+
+// Start server
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
+
+// Keep Railway alive (prevents shutdown)
+setInterval(() => {
+  fetch(`http://localhost:${PORT}`)
+    .then(() => console.log("🔁 Self ping OK"))
+    .catch(() => {});
+}, 300000);
