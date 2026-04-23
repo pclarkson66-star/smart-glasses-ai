@@ -27,26 +27,23 @@ function saveMemory() {
 
 const sessions = new Map();
 
-// ✅ HTTP server (IMPORTANT for Railway)
+// HTTP server
 const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end("Server is alive ✅");
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok" }));
 });
 
-// ✅ WebSocket server
+// WebSocket server
 const wss = new WebSocketServer({ server });
 
-// ✅ Start server
+// Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
 
-// Keep process alive (extra safety)
-setInterval(() => {}, 1000);
-
 console.log("Smart AI running...");
 
-// ✅ WebSocket connection
+// WebSocket connection
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
@@ -66,7 +63,6 @@ wss.on("connection", (ws, req) => {
   console.log("Expected token:", TOKEN);
   console.log("UserId:", userId);
 
-  // ✅ Validate
   if (token !== TOKEN || !userId) {
     console.log("REJECTED CONNECTION");
     ws.close();
@@ -81,7 +77,6 @@ wss.on("connection", (ws, req) => {
     sessions.set(userId, []);
   }
 
-  // ✅ SINGLE message handler
   ws.on("message", async (msg) => {
     try {
       const text = msg.toString();
