@@ -1,6 +1,10 @@
 import WebSocket, { WebSocketServer } from "ws";
 import fs from "fs";
+import OpenAI from "openai";
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -53,11 +57,28 @@ console.log("Incoming token:", token);
 console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
 
-ws.on("message", (msg) => {
-  const text = msg.toString();
-  console.log("MESSAGE:", text);
- // 🔥 send response back
-  ws.send("Server got: " + text);
+ws.on("message", async (msg) => {
+  try {
+    const text = msg.toString();
+    console.log("MESSAGE:", text);
+
+    // 🧠 Ask ChatGPT
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "user", content: text }
+      ],
+    });
+
+    const reply = response.choices[0].message.content;
+
+    // 🔁 Send back to client
+    ws.send(reply);
+
+  } catch (err) {
+    console.error("AI ERROR:", err);
+    ws.send("Error getting AI response");
+  }
 });
   
 // ✅ SINGLE validation block
