@@ -4,6 +4,7 @@
 "type": "module",
 "dependencies": {
 "ws": "^8.13.0"
+"openai": "^4.0.0"
 },
 "scripts": {
 "start": "node server.js"
