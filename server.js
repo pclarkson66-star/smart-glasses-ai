@@ -97,18 +97,27 @@ if (!sessions.has(userId)) {
 sessions.set(userId, []);
 }
 
-ws.on("message", async (message) => {
-  const text = message.toString();
-  console.log("User:", text);
-
+ws.on("message", async (msg) => {
   try {
-    const response = await openai.chat.completions.create({
+    const text = msg.toString();
+    console.log("MESSAGE:", text);
+
+    // 🧠 Ask ChatGPT (FIXED)
+    const response = await openai.responses.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are a helpful AI assistant." },
-        { role: "user", content: text }
-      ],
+      input: text
     });
+
+    const reply = response.output_text;
+
+    // 📤 Send back to client
+    ws.send(reply);
+
+  } catch (err) {
+    console.error("AI ERROR:", err);
+    ws.send("Error getting AI response");
+  }
+});
 
     const reply = response.choices[0].message.content;
 
