@@ -8,39 +8,45 @@ const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server });
 
-// Environment variables
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const RELAY_TOKEN = process.env.RELAY_TOKEN;
 
-// OpenAI client
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// Health check (Railway needs this)
 app.get("/", (req, res) => {
   res.send("OK");
 });
 
-// WebSocket connection (OcuClaw)
-wss.on("connection", (ws, req) => {
-  console.log("🔌 Client connected");
+wss.on("connection", (ws) => {
+  console.log("NEW CONNECTION");
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log("📩 Incoming:", data);
+      console.log("RAW MESSAGE:", data);
 
-      // Ignore protocol hello (OcuClaw handshake)
       if (data.type === "protocolHello") {
-        console.log("🤝 Handshake received");
+        console.log("Handshake received");
+
+        ws.send(
+          JSON.stringify({
+            type: "protocolAck",
+            version: "v2",
+          })
+        );
+
         return;
       }
 
-      // Optional token check
       if (RELAY_TOKEN && data.token !== RELAY_TOKEN) {
-        ws.send(JSON.stringify({ error: "Invalid token" }));
+        ws.send(
+          JSON.stringify({
+            error: "Invalid token",
+          })
+        );
         return;
       }
 
@@ -52,23 +58,28 @@ wss.on("connection", (ws, req) => {
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: "You are a helpful AI assistant for smart glasses." },
-            { role: "user", content: userText },
+            {
+              role: "system",
+              content: "You are a helpful AI assistant for smart glasses.",
+            },
+            {
+              role: "user",
+              content: userText,
+            },
           ],
         });
 
         replyText = completion.choices[0].message.content;
-
       } catch (err) {
-        console.error("❌ OpenAI Error:", err.message);
+        console.error("OPENAI ERROR:", err.message);
 
-        // Handle quota / rate limit nicely
         if (err.status === 429) {
-          replyText = "⚠️ AI is temporarily busy or quota exceeded. Try again shortly.";
+          replyText =
+            "AI is temporarily unavailable due to rate limits. Try again shortly.";
         } else if (err.status === 401) {
-          replyText = "⚠️ API key issue. Check your OpenAI key.";
+          replyText = "Invalid API key. Check your configuration.";
         } else {
-          replyText = "⚠️ AI error occurred.";
+          replyText = "An AI error occurred.";
         }
       }
 
@@ -78,9 +89,8 @@ wss.on("connection", (ws, req) => {
           text: replyText,
         })
       );
-
     } catch (err) {
-      console.error("❌ Message Error:", err);
+      console.error("MESSAGE ERROR:", err);
 
       ws.send(
         JSON.stringify({
@@ -91,18 +101,14 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
-    console.log("❌ Client disconnected");
+    console.log("CONNECTION CLOSED");
   });
 });
 
-// Start server
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-// Keep Railway alive (prevents shutdown)
 setInterval(() => {
-  fetch(`http://localhost:${PORT}`)
-    .then(() => console.log("🔁 Self ping OK"))
-    .catch(() => {});
+  fetch(`http://localhost:${PORT}`).catch(() => {});
 }, 300000);
