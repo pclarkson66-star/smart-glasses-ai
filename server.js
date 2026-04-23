@@ -11,10 +11,7 @@ const RELAY_TOKEN = process.env.RELAY_TOKEN || "default-token";
 
 // ===== INIT =====
 const app = express();
-
-// IMPORTANT: bind to 0.0.0.0 (fixes container shutdown on some platforms)
 const server = http.createServer(app);
-
 const wss = new WebSocketServer({ server });
 
 const openai = new OpenAI({
@@ -32,7 +29,7 @@ wss.on("connection", (ws) => {
 
   let authorized = false;
 
-  // keep connection alive
+  // keep websocket alive
   const keepAlive = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
       ws.ping();
@@ -60,11 +57,10 @@ wss.on("connection", (ws) => {
       if (data.type === "protocolHello") {
         console.log("Handshake received");
 
-        ws.send(
-          JSON.stringify({
-            type: "protocolAck",
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "protocolAck"
+        }));
+
         return;
       }
 
@@ -88,12 +84,10 @@ wss.on("connection", (ws) => {
           aiReply = "Temporary AI error. Try again.";
         }
 
-        ws.send(
-          JSON.stringify({
-            type: "assistantMessage",
-            text: aiReply,
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "assistantMessage",
+          text: aiReply
+        }));
       }
 
     } catch (err) {
@@ -112,14 +106,14 @@ wss.on("connection", (ws) => {
 });
 
 // ===== START SERVER =====
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
 // ===== KEEP CONTAINER ALIVE =====
 setInterval(async () => {
   try {
-    await fetch(`http://localhost:${PORT}`);
+    await fetch(`http://127.0.0.1:${PORT}`);
     console.log("Self ping success");
   } catch {
     console.log("Self ping failed");
