@@ -20,14 +20,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 console.log("API KEY LOADED:", !!OPENAI_API_KEY);
 console.log("TOKEN LOADED:", !!TOKEN);
 
-if (!OPENAI_API_KEY) {
-  console.error("Missing OPENAI_API_KEY");
-}
-
-if (!TOKEN) {
-  console.error("Missing TOKEN");
-}
-
 /* OPENAI SETUP */
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
@@ -35,7 +27,6 @@ const openai = new OpenAI({
 
 /* MEMORY (SAFE MODE) */
 const MEMORY_FILE = "./memory.json";
-
 let longTermMemory = {};
 
 try {
@@ -43,7 +34,7 @@ try {
     longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
   }
 } catch (e) {
-  console.error("Memory load failed, resetting:", e);
+  console.error("Memory load failed:", e);
   longTermMemory = {};
 }
 
@@ -61,14 +52,9 @@ function saveMemory() {
 /* SESSION TRACKING */
 const sessions = new Map();
 
-/* HTTP SERVER */
+/* HTTP SERVER (REQUIRED FOR RAILWAY) */
 const server = http.createServer((req, res) => {
-  if (req.url === "/") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    return res.end("OK");
-  }
-
-  if (req.url === "/health") {
+  if (req.url === "/" || req.url === "/health") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end("OK");
   }
@@ -86,41 +72,34 @@ server.listen(PORT, "0.0.0.0", () => {
 
 console.log("Smart AI running");
 
-/* SELF-PING TO PREVENT RAILWAY SHUTDOWN */
-setInterval(() => {
-  try {
-    http.get(`http://localhost:${PORT}/health`, (res) => {
-      console.log("Self ping status:", res.statusCode);
-    }).on("error", (err) => {
-      console.error("Self ping failed:", err.message);
-    });
-  } catch (e) {
-    console.error("Self ping exception:", e);
-  }
-}, 30000);
-
 /* CONNECTION HANDLER */
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-  let url;
+  let token = null;
 
+  // 1. Try query param
   try {
-    url = new URL(req.url, "http://localhost");
-  } catch (err) {
-    console.error("Invalid URL:", err);
+    const url = new URL(req.url, "http://localhost");
+    token = url.searchParams.get("token");
+  } catch (e) {}
+
+  // 2. Try Authorization header (OcuClaw may use this)
+  if (!token && req.headers.authorization) {
+    const parts = req.headers.authorization.split(" ");
+    if (parts.length === 2 && parts[0] === "Bearer") {
+      token = parts[1];
+    }
+  }
+
+  // 3. Validate token (optional but recommended)
+  if (TOKEN && token && token !== TOKEN) {
+    console.log("REJECTED CONNECTION (bad token)");
     ws.close();
     return;
   }
 
-  const token = url.searchParams.get("token");
-  const userId = url.searchParams.get("userId");
-
-  if (token !== TOKEN || !userId) {
-    console.log("REJECTED CONNECTION");
-    ws.close();
-    return;
-  }
+  const userId = "default-user";
 
   console.log("AUTHORIZED:", userId);
 
@@ -132,6 +111,7 @@ wss.on("connection", (ws, req) => {
     sessions.set(userId, []);
   }
 
+  /* MESSAGE HANDLER */
   ws.on("message", async (msg) => {
     try {
       const text = msg.toString();
