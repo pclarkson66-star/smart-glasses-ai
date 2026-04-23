@@ -56,10 +56,8 @@ console.log("UserId:", userId);
 ws.on("message", (msg) => {
   const text = msg.toString();
   console.log("MESSAGE:", text);
-
-  // 🔥 send response back
+ // 🔥 send response back
   ws.send("Server got: " + text);
-});
 });
   
 // ✅ SINGLE validation block
