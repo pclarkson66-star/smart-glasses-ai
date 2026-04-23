@@ -36,25 +36,25 @@ console.log("Smart AI running...");
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-const url = new URL(req.url, "http://localhost");
+  let url;
+  try {
+    url = new URL(req.url, "http://localhost");
+  } catch (err) {
+    console.log("URL PARSE ERROR:", err);
+    ws.close();
+    return;
+  }
 
-const token = url.searchParams.get("token");
+  const token = url.searchParams.get("token");
 const userId = url.searchParams.get("userId");
 
-console.log("TOKEN RECEIVED:", token);
-console.log("USER ID RECEIVED:", userId);
-console.log("EXPECTED TOKEN:", TOKEN);
-const url = new URL(req.url, "http://localhost");
-
-const token = url.searchParams.get("token");
-const userId = url.searchParams.get("userId");
-
-// Debug logs
+// Debug logs (keep these for now)
 console.log("Incoming token:", token);
 console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
 
-if (token !== TOKEN || !userId) {
+// ✅ SINGLE validation block
+if (token !== process.env.TOKEN || !userId) {
   console.log("REJECTED CONNECTION");
   ws.close();
   return;
