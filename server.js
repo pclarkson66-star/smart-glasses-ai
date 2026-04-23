@@ -54,7 +54,12 @@ console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
 
 ws.on("message", (msg) => {
-  console.log("MESSAGE:", msg.toString());
+  const text = msg.toString();
+  console.log("MESSAGE:", text);
+
+  // 🔥 send response back
+  ws.send("Server got: " + text);
+});
 });
   
 // ✅ SINGLE validation block
