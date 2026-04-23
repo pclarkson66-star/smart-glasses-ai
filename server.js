@@ -39,6 +39,10 @@ const url = new URL(req.url, "http://localhost");
 const token = url.searchParams.get("token");
 const userId = url.searchParams.get("userId");
 
+console.log("Incoming token:", token);
+console.log("Expected token:", TOKEN);
+console.log("UserId:", userId);
+  
 if (token !== TOKEN || !userId) {
 ws.close();
 return;
