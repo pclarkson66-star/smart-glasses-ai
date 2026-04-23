@@ -39,13 +39,14 @@ const url = new URL(req.url, "http://localhost");
 const token = url.searchParams.get("token");
 const userId = url.searchParams.get("userId");
 
+// Debug logs
 console.log("Incoming token:", token);
-console.log("Expected token:", TOKEN);
+console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
-  
-if (token !== TOKEN || !userId) {
-ws.close();
-return;
+
+if (token !== process.env.TOKEN || !userId) {
+  ws.close();
+  return;
 }
 
 if (!longTermMemory[userId]) {
