@@ -3,7 +3,7 @@ import fs from "fs";
 import http from "http";
 import OpenAI from "openai";
 
-/* GLOBAL SAFETY LOGGING */
+/* SAFETY LOGGING */
 process.on("uncaughtException", (err) => {
   console.error("UNCAUGHT EXCEPTION:", err);
 });
@@ -12,7 +12,7 @@ process.on("unhandledRejection", (err) => {
   console.error("UNHANDLED REJECTION:", err);
 });
 
-/* ENV CONFIG */
+/* ENV */
 const PORT = Number(process.env.PORT) || 8080;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -20,12 +20,12 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 console.log("API KEY LOADED:", !!OPENAI_API_KEY);
 console.log("TOKEN LOADED:", !!TOKEN);
 
-/* OPENAI SETUP */
+/* OPENAI */
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-/* MEMORY (SAFE MODE) */
+/* MEMORY (SAFE) */
 const MEMORY_FILE = "./memory.json";
 let longTermMemory = {};
 
@@ -49,10 +49,10 @@ function saveMemory() {
   }
 }
 
-/* SESSION TRACKING */
+/* SESSIONS */
 const sessions = new Map();
 
-/* HTTP SERVER (REQUIRED FOR RAILWAY) */
+/* HTTP SERVER (Railway requires this) */
 const server = http.createServer((req, res) => {
   if (req.url === "/" || req.url === "/health") {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -63,7 +63,7 @@ const server = http.createServer((req, res) => {
   res.end("Not Found");
 });
 
-/* WEBSOCKET SERVER */
+/* WEBSOCKET */
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, "0.0.0.0", () => {
@@ -72,19 +72,19 @@ server.listen(PORT, "0.0.0.0", () => {
 
 console.log("Smart AI running");
 
-/* CONNECTION HANDLER */
+/* CONNECTION */
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
   let token = null;
 
-  // 1. Try query param
+  // Try query param
   try {
     const url = new URL(req.url, "http://localhost");
     token = url.searchParams.get("token");
-  } catch (e) {}
+  } catch {}
 
-  // 2. Try Authorization header (OcuClaw may use this)
+  // Try Authorization header
   if (!token && req.headers.authorization) {
     const parts = req.headers.authorization.split(" ");
     if (parts.length === 2 && parts[0] === "Bearer") {
@@ -92,7 +92,7 @@ wss.on("connection", (ws, req) => {
     }
   }
 
-  // 3. Validate token (optional but recommended)
+  // Validate token (optional)
   if (TOKEN && token && token !== TOKEN) {
     console.log("REJECTED CONNECTION (bad token)");
     ws.close();
@@ -114,12 +114,42 @@ wss.on("connection", (ws, req) => {
   /* MESSAGE HANDLER */
   ws.on("message", async (msg) => {
     try {
-      const text = msg.toString();
-      console.log("MESSAGE:", text);
+      const raw = msg.toString();
+      console.log("RAW MESSAGE:", raw);
 
+      let data;
+
+      // Try parsing JSON
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { text: raw };
+      }
+
+      // 🚫 Ignore OcuClaw handshake/system messages
+      if (data.type === "protocolHello") {
+        console.log("Handshake received");
+        return;
+      }
+
+      // Extract user message safely
+      const userText =
+        data.text ||
+        data.message ||
+        data.input ||
+        raw;
+
+      if (!userText || typeof userText !== "string") {
+        console.log("No usable message");
+        return;
+      }
+
+      console.log("USER MESSAGE:", userText);
+
+      /* CALL OPENAI */
       const response = await openai.responses.create({
         model: "gpt-4o-mini",
-        input: text,
+        input: userText,
       });
 
       const reply =
@@ -130,6 +160,7 @@ wss.on("connection", (ws, req) => {
       console.log("REPLY:", reply);
 
       ws.send(reply);
+
     } catch (err) {
       console.error("AI ERROR:", err);
       ws.send("Error getting AI response");
