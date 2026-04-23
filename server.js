@@ -53,6 +53,10 @@ console.log("Incoming token:", token);
 console.log("Expected token:", process.env.TOKEN);
 console.log("UserId:", userId);
 
+ws.on("message", (msg) => {
+  console.log("MESSAGE:", msg.toString());
+});
+  
 // ✅ SINGLE validation block
 if (token !== process.env.TOKEN || !userId) {
   console.log("REJECTED CONNECTION");
