@@ -2,12 +2,13 @@ import WebSocket, { WebSocketServer } from "ws";
 import fs from "fs";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
 
 const MEMORY_FILE = "./memory.json";
 
