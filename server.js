@@ -5,7 +5,6 @@ import OpenAI from "openai";
 
 const app = express();
 const server = http.createServer(app);
-
 const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 8080;
@@ -28,36 +27,28 @@ wss.on("connection", (ws) => {
       const data = JSON.parse(message.toString());
       console.log("RAW MESSAGE:", data);
 
-     if (data.type === "protocolHello") {
-  console.log("Handshake received");
+      // Handshake
+      if (data.type === "protocolHello") {
+        console.log("Handshake received");
 
-  ws.send(
-    JSON.stringify({
-      type: "protocolAck",
-      supportedProtocolVersions: ["v2"],
-      preferredProtocolVersion: "v2",
-    })
-  );
-
-  return;
-}
+        ws.send(
+          JSON.stringify({
+            type: "protocolAck",
+            supportedProtocolVersions: ["v2"],
+            preferredProtocolVersion: "v2",
           })
         );
 
         return;
       }
 
+      // Token check
       if (RELAY_TOKEN && data.token !== RELAY_TOKEN) {
-        ws.send(
-          JSON.stringify({
-            error: "Invalid token",
-          })
-        );
+        ws.send(JSON.stringify({ error: "Invalid token" }));
         return;
       }
 
       const userText = data.text || "Hello";
-
       let replyText = "";
 
       try {
@@ -76,16 +67,16 @@ wss.on("connection", (ws) => {
         });
 
         replyText = completion.choices[0].message.content;
+
       } catch (err) {
         console.error("OPENAI ERROR:", err.message);
 
         if (err.status === 429) {
-          replyText =
-            "AI is temporarily unavailable due to rate limits. Try again shortly.";
+          replyText = "Rate limit reached. Try again shortly.";
         } else if (err.status === 401) {
-          replyText = "Invalid API key. Check your configuration.";
+          replyText = "Invalid API key.";
         } else {
-          replyText = "An AI error occurred.";
+          replyText = "AI error occurred.";
         }
       }
 
@@ -95,6 +86,7 @@ wss.on("connection", (ws) => {
           text: replyText,
         })
       );
+
     } catch (err) {
       console.error("MESSAGE ERROR:", err);
 
@@ -115,6 +107,7 @@ server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
+// Keep alive
 setInterval(() => {
   fetch(`http://localhost:${PORT}`).catch(() => {});
 }, 300000);
