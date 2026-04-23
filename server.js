@@ -61,7 +61,7 @@ function saveMemory() {
 /* SESSION TRACKING */
 const sessions = new Map();
 
-/* HTTP SERVER (IMPORTANT FOR RAILWAY) */
+/* HTTP SERVER */
 const server = http.createServer((req, res) => {
   if (req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -85,6 +85,19 @@ server.listen(PORT, "0.0.0.0", () => {
 });
 
 console.log("Smart AI running");
+
+/* SELF-PING TO PREVENT RAILWAY SHUTDOWN */
+setInterval(() => {
+  try {
+    http.get(`http://localhost:${PORT}/health`, (res) => {
+      console.log("Self ping status:", res.statusCode);
+    }).on("error", (err) => {
+      console.error("Self ping failed:", err.message);
+    });
+  } catch (e) {
+    console.error("Self ping exception:", e);
+  }
+}, 30000);
 
 /* CONNECTION HANDLER */
 wss.on("connection", (ws, req) => {
