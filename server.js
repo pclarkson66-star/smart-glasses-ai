@@ -3,6 +3,10 @@ import fs from "fs";
 import http from "http";
 import OpenAI from "openai";
 
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received");
+});
+
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -27,10 +31,14 @@ function saveMemory() {
 
 const sessions = new Map();
 
-// HTTP server
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "ok" }));
+  if (req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("OK");
+  } else {
+    res.writeHead(200);
+    res.end("Running");
+  }
 });
 
 // WebSocket server
@@ -94,6 +102,10 @@ wss.on("connection", (ws, req) => {
     } catch (err) {
       console.error("AI ERROR:", err);
       ws.send("Error getting AI response");
-    }
+   }
+    setTimeout(() => {
+  console.log("Server fully started");
+}, 2000);
+
   });
 });
