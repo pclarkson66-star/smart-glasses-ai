@@ -2,6 +2,7 @@ import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
+import fetch from "node-fetch";
 
 // ===== ENV =====
 const PORT = process.env.PORT || 8080;
@@ -10,6 +11,8 @@ const RELAY_TOKEN = process.env.RELAY_TOKEN || "default-token";
 
 // ===== INIT =====
 const app = express();
+
+// IMPORTANT: bind to 0.0.0.0 (fixes container shutdown on some platforms)
 const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server });
@@ -18,18 +21,18 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// ===== HEALTH CHECK (REQUIRED FOR DEPLOY) =====
+// ===== HEALTH CHECK =====
 app.get("/", (req, res) => {
   res.send("OK");
 });
 
-// ===== WEBSOCKET (OCUCLAW RELAY) =====
-wss.on("connection", (ws, req) => {
+// ===== WEBSOCKET SERVER =====
+wss.on("connection", (ws) => {
   console.log("NEW CONNECTION");
 
   let authorized = false;
 
-  // ===== KEEP ALIVE (prevents container shutdown) =====
+  // keep connection alive
   const keepAlive = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
       ws.ping();
@@ -41,7 +44,7 @@ wss.on("connection", (ws, req) => {
       const data = JSON.parse(message.toString());
       console.log("RAW MESSAGE:", data);
 
-      // ===== AUTH STEP =====
+      // ===== AUTH =====
       if (!authorized) {
         if (data.token !== RELAY_TOKEN) {
           console.log("UNAUTHORIZED");
@@ -53,7 +56,7 @@ wss.on("connection", (ws, req) => {
         console.log("AUTHORIZED");
       }
 
-      // ===== HANDLE HANDSHAKE =====
+      // ===== HANDSHAKE =====
       if (data.type === "protocolHello") {
         console.log("Handshake received");
 
@@ -62,11 +65,10 @@ wss.on("connection", (ws, req) => {
             type: "protocolAck",
           })
         );
-
         return;
       }
 
-      // ===== HANDLE USER MESSAGE =====
+      // ===== USER MESSAGE =====
       if (data.type === "userMessage") {
         const userText = data.text || "Hello";
 
@@ -83,8 +85,6 @@ wss.on("connection", (ws, req) => {
           aiReply = response.choices[0].message.content;
         } catch (err) {
           console.log("AI ERROR:", err.message);
-
-          // fallback so connection doesn't close
           aiReply = "Temporary AI error. Try again.";
         }
 
@@ -112,6 +112,16 @@ wss.on("connection", (ws, req) => {
 });
 
 // ===== START SERVER =====
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// ===== KEEP CONTAINER ALIVE =====
+setInterval(async () => {
+  try {
+    await fetch(`http://localhost:${PORT}`);
+    console.log("Self ping success");
+  } catch {
+    console.log("Self ping failed");
+  }
+}, 20000);
