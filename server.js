@@ -1,5 +1,6 @@
 import WebSocket, { WebSocketServer } from "ws";
 import fs from "fs";
+import http from "http";
 import OpenAI from "openai";
 
 const PORT = process.env.PORT || 3000;
@@ -12,19 +13,19 @@ const openai = new OpenAI({
 
 const MEMORY_FILE = "./memory.json";
 
+// Load memory
 let longTermMemory = {};
 if (fs.existsSync(MEMORY_FILE)) {
-longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
+  longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
 }
 
 function saveMemory() {
-fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
 }
 
 const sessions = new Map();
 
-import http from "http";
-
+// HTTP server (for Railway health check)
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("Smart AI WebSocket server running 🚀");
@@ -38,6 +39,7 @@ server.listen(PORT, () => {
 
 console.log("Smart AI running...");
 
+// WebSocket connection
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
@@ -51,140 +53,45 @@ wss.on("connection", (ws, req) => {
   }
 
   const token = url.searchParams.get("token");
-const userId = url.searchParams.get("userId");
+  const userId = url.searchParams.get("userId");
 
-// Debug logs (keep these for now)
-console.log("Incoming token:", token);
-console.log("Expected token:", process.env.TOKEN);
-console.log("UserId:", userId);
+  console.log("Incoming token:", token);
+  console.log("Expected token:", process.env.TOKEN);
+  console.log("UserId:", userId);
 
-ws.on("message", async (msg) => {
-  try {
-    const text = msg.toString();
-    console.log("MESSAGE:", text);
-
-    // 🧠 Ask ChatGPT
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "user", content: text }
-      ],
-    });
-
-    const reply = response.choices[0].message.content;
-
-    // 🔁 Send back to client
-    ws.send(reply);
-
-  } catch (err) {
-    console.error("AI ERROR:", err);
-    ws.send("Error getting AI response");
-  }
-});
-  
-// ✅ SINGLE validation block
-if (token !== process.env.TOKEN || !userId) {
-  console.log("REJECTED CONNECTION");
-  ws.close();
-  return;
-}
-
-if (!longTermMemory[userId]) {
-longTermMemory[userId] = { facts: [] };
-}
-
-if (!sessions.has(userId)) {
-sessions.set(userId, []);
-}
-
-ws.on("message", async (msg) => {
-  try {
-    const text = msg.toString();
-    console.log("MESSAGE:", text);
-
-    // 🧠 Ask ChatGPT (FIXED)
-    const response = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: text
-    });
-
-    const reply = response.output_text;
-
-    // 📤 Send back to client
-    ws.send(reply);
-
-  } catch (err) {
-    console.error("AI ERROR:", err);
-    ws.send("Error getting AI response");
-  }
-});
-
-const history = sessions.get(userId);
-const memory = longTermMemory[userId];
-
-history.push({ role: "user", content: userText });
-
-try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      stream: true,
-      messages: [
-        {
-          role: "system",
-          content: `You are a concise assistant. User facts: ${memory.facts.join(", ")}`,
-
-        },
-        ...history
-      ]
-    })
-  });
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  let fullReply = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.replace("data: ", "");
-        if (data === "[DONE]") break;
-
-        try {
-          const json = JSON.parse(data);
-          const token = json.choices?.[0]?.delta?.content;
-
-          if (token) {
-            fullReply += token;
-            ws.send(token);
-          }
-        } catch {}
-      }
-    }
+  // ✅ Validate connection
+  if (token !== TOKEN || !userId) {
+    console.log("REJECTED CONNECTION");
+    ws.close();
+    return;
   }
 
-  history.push({ role: "assistant", content: fullReply });
-
-  if (userText.toLowerCase().includes("my name is")) {
-    memory.facts.push(userText);
-    saveMemory();
+  // Init memory + session
+  if (!longTermMemory[userId]) {
+    longTermMemory[userId] = { facts: [] };
   }
 
-} catch {
-  ws.send("Error");
-}
+  if (!sessions.has(userId)) {
+    sessions.set(userId, []);
+  }
 
-});
-});
+  // ✅ SINGLE message handler
+  ws.on("message", async (msg) => {
+    try {
+      const text = msg.toString();
+      console.log("MESSAGE:", text);
+
+      const history = sessions.get(userId);
+      const memory = longTermMemory[userId];
+
+      history.push({ role: "user", content: text });
+
+      // 🧠 Ask OpenAI (correct v4 API)
+      const response = await openai.responses.create({
+        model: "gpt-4o-mini",
+        input: [
+          {
+            role: "system",
+            content: `You are a helpful assistant. User facts: ${memory.facts.join(", ")}`,
+          },
+          ...history
