@@ -3,10 +3,6 @@ import fs from "fs";
 import http from "http";
 import OpenAI from "openai";
 
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received");
-});
-
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -17,12 +13,16 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// Memory
 const MEMORY_FILE = "./memory.json";
 
 let longTermMemory = {};
 if (fs.existsSync(MEMORY_FILE)) {
-  longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
+  try {
+    longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
+  } catch (e) {
+    console.log("Memory load failed, resetting.");
+    longTermMemory = {};
+  }
 }
 
 function saveMemory() {
@@ -32,26 +32,18 @@ function saveMemory() {
 const sessions = new Map();
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("OK");
-  } else {
-    res.writeHead(200);
-    res.end("Running");
-  }
+  res.writeHead(200);
+  res.end("Server is alive ✅");
 });
 
-// WebSocket server
 const wss = new WebSocketServer({ server });
 
-// Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
 
 console.log("Smart AI running...");
 
-// WebSocket connection
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
@@ -59,17 +51,12 @@ wss.on("connection", (ws, req) => {
   try {
     url = new URL(req.url, "http://localhost");
   } catch (err) {
-    console.log("URL PARSE ERROR:", err);
     ws.close();
     return;
   }
 
   const token = url.searchParams.get("token");
   const userId = url.searchParams.get("userId");
-
-  console.log("Incoming token:", token);
-  console.log("Expected token:", TOKEN);
-  console.log("UserId:", userId);
 
   if (token !== TOKEN || !userId) {
     console.log("REJECTED CONNECTION");
@@ -92,20 +79,16 @@ wss.on("connection", (ws, req) => {
 
       const response = await openai.responses.create({
         model: "gpt-4o-mini",
-        input: text,
+        input: text
       });
 
-      const reply = response.output_text;
+      const reply = response.output_text || "No response";
 
       ws.send(reply);
 
     } catch (err) {
       console.error("AI ERROR:", err);
       ws.send("Error getting AI response");
-   }
-    setTimeout(() => {
-  console.log("Server fully started");
-}, 2000);
-
+    }
   });
 });
