@@ -18,7 +18,18 @@ fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
 
 const sessions = new Map();
 
-const wss = new WebSocketServer({ port: PORT });
+import http from "http";
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Smart AI WebSocket server running 🚀");
+});
+
+const wss = new WebSocketServer({ server });
+
+server.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
 
 console.log("Smart AI running...");
 
