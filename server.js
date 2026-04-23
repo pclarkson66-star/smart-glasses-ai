@@ -1,113 +1,117 @@
 import express from "express";
 import http from "http";
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
 import OpenAI from "openai";
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
+// ===== ENV =====
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const RELAY_TOKEN = process.env.RELAY_TOKEN;
+const RELAY_TOKEN = process.env.RELAY_TOKEN || "default-token";
+
+// ===== INIT =====
+const app = express();
+const server = http.createServer(app);
+
+const wss = new WebSocketServer({ server });
 
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
+// ===== HEALTH CHECK (REQUIRED FOR DEPLOY) =====
 app.get("/", (req, res) => {
   res.send("OK");
 });
 
-wss.on("connection", (ws) => {
+// ===== WEBSOCKET (OCUCLAW RELAY) =====
+wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
+
+  let authorized = false;
+
+  // ===== KEEP ALIVE (prevents container shutdown) =====
+  const keepAlive = setInterval(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.ping();
+    }
+  }, 25000);
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
       console.log("RAW MESSAGE:", data);
 
-      // Handshake
+      // ===== AUTH STEP =====
+      if (!authorized) {
+        if (data.token !== RELAY_TOKEN) {
+          console.log("UNAUTHORIZED");
+          ws.close();
+          return;
+        }
+
+        authorized = true;
+        console.log("AUTHORIZED");
+      }
+
+      // ===== HANDLE HANDSHAKE =====
       if (data.type === "protocolHello") {
         console.log("Handshake received");
 
         ws.send(
           JSON.stringify({
             type: "protocolAck",
-            supportedProtocolVersions: ["v2"],
-            preferredProtocolVersion: "v2",
           })
         );
 
         return;
       }
 
-      // Token check
-      if (RELAY_TOKEN && data.token !== RELAY_TOKEN) {
-        ws.send(JSON.stringify({ error: "Invalid token" }));
-        return;
-      }
+      // ===== HANDLE USER MESSAGE =====
+      if (data.type === "userMessage") {
+        const userText = data.text || "Hello";
 
-      const userText = data.text || "Hello";
-      let replyText = "";
+        let aiReply = "AI unavailable";
 
-      try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful AI assistant for smart glasses.",
-            },
-            {
-              role: "user",
-              content: userText,
-            },
-          ],
-        });
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: userText }
+            ],
+          });
 
-        replyText = completion.choices[0].message.content;
+          aiReply = response.choices[0].message.content;
+        } catch (err) {
+          console.log("AI ERROR:", err.message);
 
-      } catch (err) {
-        console.error("OPENAI ERROR:", err.message);
-
-        if (err.status === 429) {
-          replyText = "Rate limit reached. Try again shortly.";
-        } else if (err.status === 401) {
-          replyText = "Invalid API key.";
-        } else {
-          replyText = "AI error occurred.";
+          // fallback so connection doesn't close
+          aiReply = "Temporary AI error. Try again.";
         }
-      }
 
-      ws.send(
-        JSON.stringify({
-          type: "response",
-          text: replyText,
-        })
-      );
+        ws.send(
+          JSON.stringify({
+            type: "assistantMessage",
+            text: aiReply,
+          })
+        );
+      }
 
     } catch (err) {
-      console.error("MESSAGE ERROR:", err);
-
-      ws.send(
-        JSON.stringify({
-          error: "Invalid message format",
-        })
-      );
+      console.log("MESSAGE ERROR:", err.message);
     }
   });
 
   ws.on("close", () => {
     console.log("CONNECTION CLOSED");
+    clearInterval(keepAlive);
+  });
+
+  ws.on("error", (err) => {
+    console.log("WS ERROR:", err.message);
   });
 });
 
+// ===== START SERVER =====
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-// Keep alive
-setInterval(() => {
-  fetch(`http://localhost:${PORT}`).catch(() => {});
-}, 300000);
