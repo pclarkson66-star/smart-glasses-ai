@@ -28,13 +28,19 @@ wss.on("connection", (ws) => {
       const data = JSON.parse(message.toString());
       console.log("RAW MESSAGE:", data);
 
-      if (data.type === "protocolHello") {
-        console.log("Handshake received");
+     if (data.type === "protocolHello") {
+  console.log("Handshake received");
 
-        ws.send(
-          JSON.stringify({
-            type: "protocolAck",
-            version: "v2",
+  ws.send(
+    JSON.stringify({
+      type: "protocolAck",
+      supportedProtocolVersions: ["v2"],
+      preferredProtocolVersion: "v2",
+    })
+  );
+
+  return;
+}
           })
         );
 
