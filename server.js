@@ -119,17 +119,6 @@ ws.on("message", async (msg) => {
   }
 });
 
-    const reply = response.choices[0].message.content;
-
-    console.log("AI:", reply);
-
-    ws.send(reply);
-  } catch (err) {
-    console.error("AI Error:", err);
-    ws.send("Error talking to AI");
-  }
-});
-
 const history = sessions.get(userId);
 const memory = longTermMemory[userId];
 
