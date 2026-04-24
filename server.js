@@ -1,7 +1,7 @@
-import WebSocket, { WebSocketServer } from "ws";
-import fs from "fs";
 import http from "http";
+import { WebSocketServer } from "ws";
 import OpenAI from "openai";
+import fs from "fs";
 
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.TOKEN;
@@ -18,18 +18,13 @@ const MEMORY_FILE = "./memory.json";
 // Load memory
 let longTermMemory = {};
 if (fs.existsSync(MEMORY_FILE)) {
-  try {
-    longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
-  } catch {
-    longTermMemory = {};
-  }
+  longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
 }
 
+// Save memory
 function saveMemory() {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
 }
-
-const sessions = new Map();
 
 // HTTP server (required for Railway)
 const server = http.createServer((req, res) => {
@@ -40,85 +35,53 @@ const server = http.createServer((req, res) => {
 // WebSocket server
 const wss = new WebSocketServer({ server });
 
-// Start server
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port", PORT);
-});
-
-console.log("Smart AI running");
-
-// Handle connections
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-  let url;
-  try {
-    url = new URL(req.url, "http://localhost");
-  } catch (err) {
-    console.log("URL PARSE ERROR:", err);
-    ws.close();
-    return;
-  }
-
+  const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get("token");
-  const userId = url.searchParams.get("userId");
 
   console.log("Incoming token:", token);
-  console.log("UserId:", userId);
 
-  // Validate connection
-  if (token !== TOKEN || !userId) {
+  if (token !== TOKEN) {
     console.log("REJECTED CONNECTION");
     ws.close();
     return;
   }
 
-  // Initialize memory + session
-  if (!longTermMemory[userId]) {
-    longTermMemory[userId] = { facts: [] };
-  }
+  console.log("AUTHORIZED CONNECTION");
 
-  if (!sessions.has(userId)) {
-    sessions.set(userId, []);
-  }
-
-  const history = sessions.get(userId);
-  const memory = longTermMemory[userId];
-
-  // Message handler
-  ws.on("message", async (msg) => {
+  ws.on("message", async (message) => {
     try {
-      const userText = msg.toString();
-      console.log("MESSAGE:", userText);
+      const text = message.toString();
+      console.log("Received:", text);
 
-      history.push({ role: "user", content: userText });
-
-      const response = await openai.responses.create({
+      // Call OpenAI
+      const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        input: [
-          {
-            role: "system",
-            content: `You are a concise assistant. User facts: ${memory.facts.join(", ")}`
-          },
-          ...history
-        ]
+        messages: [{ role: "user", content: text }],
       });
 
-      const reply = response.output_text || "No response";
+      const reply = response.choices[0].message.content;
 
       ws.send(reply);
 
-      history.push({ role: "assistant", content: reply });
-
-      // Simple memory capture
-      if (userText.toLowerCase().includes("my name is")) {
-        memory.facts.push(userText);
-        saveMemory();
-      }
+      // Optional: store memory
+      longTermMemory.lastMessage = text;
+      saveMemory();
 
     } catch (err) {
-      console.error("AI ERROR:", err);
-      ws.send("Error getting AI response");
+      console.error("Error:", err);
+      ws.send("Error processing request");
     }
   });
+
+  ws.on("close", () => {
+    console.log("Connection closed");
+  });
+});
+
+// Start server
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Server running on port", PORT);
 });
