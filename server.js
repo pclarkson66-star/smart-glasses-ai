@@ -10,13 +10,11 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// Create HTTP server (required for Railway)
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("OK");
 });
 
-// Attach WebSocket server
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
@@ -40,16 +38,16 @@ wss.on("connection", (ws, req) => {
       const data = JSON.parse(message.toString());
       console.log("Received:", data);
 
-      // Handle Ocuclaw handshake
+      // 🔑 FIXED HANDSHAKE
       if (data.type === "protocolHello") {
         ws.send(JSON.stringify({
           type: "protocolAck",
-          version: "v2"
+          protocolVersion: data.preferredProtocolVersion || "v2"
         }));
         return;
       }
 
-      // Handle incoming text from glasses
+      // Handle text input from glasses
       if (data.type === "text") {
         const userText = data.text;
 
@@ -64,7 +62,6 @@ wss.on("connection", (ws, req) => {
 
         console.log("AI Reply:", reply);
 
-        // Send response back to glasses (correct format)
         ws.send(JSON.stringify({
           type: "text",
           text: reply
