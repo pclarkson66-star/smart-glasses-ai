@@ -10,35 +10,28 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Health check
+// Health route (IMPORTANT)
 app.get("/", (req, res) => {
-  res.send("AI server is running");
+  res.send("Server is alive");
 });
 
-// Main AI endpoint
+// Test AI route
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
 
-    if (!message) {
-      return res.status(400).json({ error: "No message provided" });
-    }
-
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are a helpful assistant for smart glasses. Keep responses short." },
-        { role: "user", content: message }
-      ],
+      messages: [{ role: "user", content: message || "Hello" }],
     });
 
-    const reply = response.choices[0].message.content;
-
-    res.json({ reply });
+    res.json({
+      reply: response.choices[0].message.content
+    });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "AI request failed" });
+    res.status(500).send("Error");
   }
 });
 
