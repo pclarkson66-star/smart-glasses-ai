@@ -38,16 +38,21 @@ wss.on("connection", (ws, req) => {
       const data = JSON.parse(message.toString());
       console.log("Received:", data);
 
-      // 🔑 FIXED HANDSHAKE
+      // Ocuclaw handshake
       if (data.type === "protocolHello") {
         ws.send(JSON.stringify({
           type: "protocolAck",
           protocolVersion: data.preferredProtocolVersion || "v2"
         }));
+
+        ws.send(JSON.stringify({
+          type: "ready"
+        }));
+
         return;
       }
 
-      // Handle text input from glasses
+      // Handle incoming text
       if (data.type === "text") {
         const userText = data.text;
 
