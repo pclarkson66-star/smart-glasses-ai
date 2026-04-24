@@ -1,38 +1,22 @@
 import http from "http";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
-import fs from "fs";
 
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-console.log("API KEY LOADED:", !!OPENAI_API_KEY);
-
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-const MEMORY_FILE = "./memory.json";
-
-// Load memory
-let longTermMemory = {};
-if (fs.existsSync(MEMORY_FILE)) {
-  longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE));
-}
-
-// Save memory
-function saveMemory() {
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
-}
-
-// HTTP server (required for Railway)
+// Create HTTP server (required for Railway)
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Server is alive");
+  res.end("OK");
 });
 
-// WebSocket server
+// Attach WebSocket server
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
@@ -53,26 +37,42 @@ wss.on("connection", (ws, req) => {
 
   ws.on("message", async (message) => {
     try {
-      const text = message.toString();
-      console.log("Received:", text);
+      const data = JSON.parse(message.toString());
+      console.log("Received:", data);
 
-      // Call OpenAI
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: text }],
-      });
+      // Handle Ocuclaw handshake
+      if (data.type === "protocolHello") {
+        ws.send(JSON.stringify({
+          type: "protocolAck",
+          version: "v2"
+        }));
+        return;
+      }
 
-      const reply = response.choices[0].message.content;
+      // Handle incoming text from glasses
+      if (data.type === "text") {
+        const userText = data.text;
 
-      ws.send(reply);
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "user", content: userText }
+          ],
+        });
 
-      // Optional: store memory
-      longTermMemory.lastMessage = text;
-      saveMemory();
+        const reply = response.choices[0].message.content;
+
+        console.log("AI Reply:", reply);
+
+        // Send response back to glasses (correct format)
+        ws.send(JSON.stringify({
+          type: "text",
+          text: reply
+        }));
+      }
 
     } catch (err) {
       console.error("Error:", err);
-      ws.send("Error processing request");
     }
   });
 
@@ -81,7 +81,6 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-// Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
