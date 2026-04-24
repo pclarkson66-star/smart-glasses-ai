@@ -42,7 +42,17 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
-      // Example: respond to user input
+      // Example: respond to user inputif (data.type === "protocolHello") {
+  ws.send(JSON.stringify({
+    type: "protocolHello",
+    protocolVersion: "v2",
+    serverName: "smart-glasses-ai",
+    capabilities: {
+      streaming: false
+    }
+  }));
+  return;
+}
       if (data.type === "userMessage") {
         const userText = data.text || "Hello";
 
