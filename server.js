@@ -1,91 +1,85 @@
-import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
+import WebSocket, { WebSocketServer } from "ws";
 import OpenAI from "openai";
 
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+console.log("Server starting...");
+console.log("TOKEN:", TOKEN);
+console.log("API KEY LOADED:", !!OPENAI_API_KEY);
+
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
 const server = http.createServer();
-const wss = new WebSocketServer({ server });
 
-console.log("Server starting...");
+const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-  let authorized = false;
+  // Extract token from URL query
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const incomingToken = url.searchParams.get("token");
+
+  console.log("Incoming token:", incomingToken);
+
+  if (incomingToken !== TOKEN) {
+    console.log("REJECTED CONNECTION");
+    ws.close();
+    return;
+  }
+
+  console.log("AUTHORIZED CONNECTION");
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
+      console.log("Received:", data);
 
-      // Handle authentication
-      if (!authorized) {
-        const incomingToken = data.token || data.authorization || null;
-        console.log("Incoming token:", incomingToken);
-
-        if (incomingToken !== TOKEN) {
-          console.log("REJECTED CONNECTION");
-          ws.close();
-          return;
-        }
-
-        console.log("AUTHORIZED CONNECTION");
-        authorized = true;
-      }
-
-      // Handle protocol handshake (CRITICAL FIX)
+      // Handle protocol hello (REQUIRED by Ocuclaw)
       if (data.type === "protocolHello") {
-        console.log("Received protocolHello");
+        console.log("Protocol handshake received");
 
         ws.send(JSON.stringify({
-          type: "protocolHello",
-          protocolVersion: "v2",
-          serverName: "smart-glasses-ai",
-          capabilities: {
-            streaming: false
-          }
+          type: "protocolAck",
+          version: "v2"
         }));
 
         return;
       }
 
-      // Handle incoming messages from glasses
-      if (data.type === "text" || data.type === "message") {
-        const userText = data.text || data.message || "";
+      // Handle user message from glasses
+      if (data.type === "userMessage") {
+        const userText = data.text || "Hello";
+
         console.log("User said:", userText);
 
-        let aiResponse = "Hello from AI";
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are a helpful assistant responding for smart glasses. Keep responses short." },
+            { role: "user", content: userText }
+          ],
+        });
 
-        try {
-          const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              { role: "user", content: userText }
-            ]
-          });
+        const aiText = response.choices[0].message.content;
 
-          aiResponse = completion.choices[0].message.content;
-        } catch (err) {
-          console.error("OpenAI error:", err.message);
-        }
+        console.log("AI response:", aiText);
 
-        // Send response back to glasses
         ws.send(JSON.stringify({
-          type: "text",
-          text: aiResponse
+          type: "assistantMessage",
+          text: aiText
         }));
 
         return;
       }
 
     } catch (err) {
-      console.error("Error parsing message:", err.message);
+      console.log("Error:", err.message);
     }
   });
 
