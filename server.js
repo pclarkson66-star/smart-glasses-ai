@@ -1,78 +1,91 @@
+import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
-import { WebSocketServer } from "ws";
 import OpenAI from "openai";
 
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
 });
 
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
+console.log("Server starting...");
+
 wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-  const url = new URL(req.url, "http://localhost");
-  const token = url.searchParams.get("token");
-
-  console.log("Incoming token:", token);
-
-  if (token !== TOKEN) {
-    console.log("REJECTED CONNECTION");
-    ws.close(1008, "Unauthorized");
-    return;
-  }
-
-  console.log("AUTHORIZED CONNECTION");
+  let authorized = false;
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log("Received:", data);
 
-      // REQUIRED: respond to protocolHello
+      // Handle authentication
+      if (!authorized) {
+        const incomingToken = data.token || data.authorization || null;
+        console.log("Incoming token:", incomingToken);
+
+        if (incomingToken !== TOKEN) {
+          console.log("REJECTED CONNECTION");
+          ws.close();
+          return;
+        }
+
+        console.log("AUTHORIZED CONNECTION");
+        authorized = true;
+      }
+
+      // Handle protocol handshake (CRITICAL FIX)
       if (data.type === "protocolHello") {
+        console.log("Received protocolHello");
+
         ws.send(JSON.stringify({
-          type: "protocolHelloAck",
-          version: "v2"
+          type: "protocolHello",
+          protocolVersion: "v2",
+          serverName: "smart-glasses-ai",
+          capabilities: {
+            streaming: false
+          }
         }));
+
         return;
       }
 
-      // Example: respond to user inputif (data.type === "protocolHello") {
-  ws.send(JSON.stringify({
-    type: "protocolHello",
-    protocolVersion: "v2",
-    serverName: "smart-glasses-ai",
-    capabilities: {
-      streaming: false
-    }
-  }));
-  return;
-}
-      if (data.type === "userMessage") {
-        const userText = data.text || "Hello";
+      // Handle incoming messages from glasses
+      if (data.type === "text" || data.type === "message") {
+        const userText = data.text || data.message || "";
+        console.log("User said:", userText);
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "user", content: userText }
-          ]
-        });
+        let aiResponse = "Hello from AI";
 
-        const reply = completion.choices[0].message.content;
+        try {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: userText }
+            ]
+          });
 
+          aiResponse = completion.choices[0].message.content;
+        } catch (err) {
+          console.error("OpenAI error:", err.message);
+        }
+
+        // Send response back to glasses
         ws.send(JSON.stringify({
-          type: "assistantMessage",
-          text: reply
+          type: "text",
+          text: aiResponse
         }));
+
+        return;
       }
 
     } catch (err) {
-      console.log("ERROR:", err.message);
+      console.error("Error parsing message:", err.message);
     }
   });
 
@@ -82,5 +95,5 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
 });
