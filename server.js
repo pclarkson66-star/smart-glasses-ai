@@ -2,84 +2,123 @@ import WebSocket, { WebSocketServer } from "ws";
 import fs from "fs";
 import http from "http";
 import OpenAI from "openai";
-import express from "express"; //
 
-const app = express();
 const PORT = process.env.PORT || 8080;
-const RELAY_TOKEN = process.env.RELAY_TOKEN || "abc123";
+const TOKEN = process.env.TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-app.get("/", (req, res) => res.send("OK"));
-app.get("/health", (req, res) => res.send("healthy"));
+console.log("API KEY LOADED:", !!OPENAI_API_KEY);
 
-const server = http.createServer(app);
-
-const wss = new WebSocketServer({
-  server,
-  path: "/ws"
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
 });
 
-wss.on("connection", (ws) => {
+const MEMORY_FILE = "./memory.json";
+
+// Load memory
+let longTermMemory = {};
+if (fs.existsSync(MEMORY_FILE)) {
+  try {
+    longTermMemory = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
+  } catch {
+    longTermMemory = {};
+  }
+}
+
+function saveMemory() {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(longTermMemory, null, 2));
+}
+
+const sessions = new Map();
+
+// HTTP server (required for Railway)
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Server is alive");
+});
+
+// WebSocket server
+const wss = new WebSocketServer({ server });
+
+// Start server
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Server running on port", PORT);
+});
+
+console.log("Smart AI running");
+
+// Handle connections
+wss.on("connection", (ws, req) => {
   console.log("NEW CONNECTION");
 
-  let authorized = false;
+  let url;
+  try {
+    url = new URL(req.url, "http://localhost");
+  } catch (err) {
+    console.log("URL PARSE ERROR:", err);
+    ws.close();
+    return;
+  }
 
-  ws.on("message", (message) => {
+  const token = url.searchParams.get("token");
+  const userId = url.searchParams.get("userId");
+
+  console.log("Incoming token:", token);
+  console.log("UserId:", userId);
+
+  // Validate connection
+  if (token !== TOKEN || !userId) {
+    console.log("REJECTED CONNECTION");
+    ws.close();
+    return;
+  }
+
+  // Initialize memory + session
+  if (!longTermMemory[userId]) {
+    longTermMemory[userId] = { facts: [] };
+  }
+
+  if (!sessions.has(userId)) {
+    sessions.set(userId, []);
+  }
+
+  const history = sessions.get(userId);
+  const memory = longTermMemory[userId];
+
+  // Message handler
+  ws.on("message", async (msg) => {
     try {
-      const text = message.toString();
-      console.log("RAW MESSAGE:", text);
+      const userText = msg.toString();
+      console.log("MESSAGE:", userText);
 
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return;
+      history.push({ role: "user", content: userText });
+
+      const response = await openai.responses.create({
+        model: "gpt-4o-mini",
+        input: [
+          {
+            role: "system",
+            content: `You are a concise assistant. User facts: ${memory.facts.join(", ")}`
+          },
+          ...history
+        ]
+      });
+
+      const reply = response.output_text || "No response";
+
+      ws.send(reply);
+
+      history.push({ role: "assistant", content: reply });
+
+      // Simple memory capture
+      if (userText.toLowerCase().includes("my name is")) {
+        memory.facts.push(userText);
+        saveMemory();
       }
-
-      if (data.type === "protocolHello") {
-        const token = data.token;
-
-        if (token !== RELAY_TOKEN) {
-          console.log("UNAUTHORIZED");
-          ws.close();
-          return;
-        }
-
-        authorized = true;
-        console.log("AUTHORIZED");
-
-        ws.send(JSON.stringify({
-          type: "protocolAck",
-          version: "v2"
-        }));
-
-        return;
-      }
-
-      if (!authorized) return;
-
-      ws.send(JSON.stringify({
-        type: "response",
-        text: "Connected to AI relay"
-      }));
 
     } catch (err) {
-      console.error("ERROR:", err);
+      console.error("AI ERROR:", err);
+      ws.send("Error getting AI response");
     }
   });
-
-  ws.on("close", () => {
-    console.log("CONNECTION CLOSED");
-  });
 });
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-// keep alive
-setInterval(async () => {
-  try {
-    await fetch(`http://localhost:${PORT}/health`);
-    console.log("Self ping success");
-  } catch {}
-}, 30000);
